@@ -99,6 +99,16 @@ const Dashboard = () => {
     }
   };
 
+  // Helper function to safely render course name from text or populated object
+  const renderCourseName = (courseData) => {
+    if (!courseData) return "—";
+    if (typeof courseData === "object" && courseData.name) {
+      return courseData.name;
+    }
+    const found = courses.find((c) => c._id === courseData);
+    return found ? found.name : "—";
+  };
+
   return (
     <div className="container">
       <h2>Welcome, {user?.name}</h2>
@@ -181,12 +191,7 @@ const Dashboard = () => {
                 {t.description || "No description provided."}
               </p>
               <div style={styles.taskMeta}>
-                <span>
-                  Course:{" "}
-                  {t.course
-                    ? courses.find((c) => c._id === t.course)?.name || t.course
-                    : "—"}
-                </span>
+                <span>Course: {renderCourseName(t.course)}</span>
                 <span>
                   Due:{" "}
                   {t.dueDate ? new Date(t.dueDate).toLocaleDateString() : "—"}

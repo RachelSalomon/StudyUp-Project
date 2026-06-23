@@ -23,11 +23,29 @@ const Navbar = () => {
         <div style={styles.linkSection}>
           {token ? (
             <>
+              {/* Core Links */}
               <Link to="/" style={styles.link}>
                 Dashboard
               </Link>
               <Link to="/courses" style={styles.link}>
                 Courses
+              </Link>
+
+              {/* Advanced Professor Requirement Links */}
+              <Link to="/chat" style={styles.link}>
+                💬 Chat
+              </Link>
+              <Link to="/analytics" style={styles.link}>
+                📊 Analytics
+              </Link>
+              <Link to="/tour" style={styles.link}>
+                🎥 Tour
+              </Link>
+              <Link to="/canvas" style={styles.link}>
+                🎨 Canvas
+              </Link>
+              <Link to="/jquery" style={styles.link}>
+                🌐 jQuery
               </Link>
             </>
           ) : (
@@ -90,12 +108,14 @@ const styles = {
     gap: 16,
     flex: "1 1 auto",
     justifyContent: "center",
+    flexWrap: "wrap", // Added to make sure all new items wrap nicely on smaller screens
   },
   link: {
     color: "#cbd5e1",
     textDecoration: "none",
     fontSize: 15,
     fontWeight: 500,
+    whiteSpace: "nowrap", // Prevents text emojis from breaking awkwardly
   },
   userSection: {
     display: "flex",
