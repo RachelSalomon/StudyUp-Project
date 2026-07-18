@@ -3,6 +3,7 @@ const router = express.Router();
 const {
   registerUser,
   loginUser,
+  listUsers,
   getUserProfile,
   updateUser,
   deleteUser,
@@ -12,6 +13,8 @@ const { protect } = require("../middleware/authMiddleware");
 // Authentication routes
 router.post("/register", registerUser);
 router.post("/login", loginUser);
+
+router.get("/users", protect, listUsers);
 
 // Profile GET routes (Split to support optional ID parameter without crashing)
 // Route for getting the current logged-in user's profile

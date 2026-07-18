@@ -1,9 +1,30 @@
 const User = require("../models/User");
 const generateToken = require("../utils/generateToken");
 
+const MANAGER_PERMISSIONS = [
+  "edit_course",
+  "add_members",
+  "search_advanced",
+  "view_analytics",
+];
+
 const registerUser = async (req, res) => {
   try {
     const { name, email, password, role } = req.body;
+
+    if (!name?.trim() || !email?.trim() || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "Name, email and password are required",
+      });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: "Password must be at least 6 characters",
+      });
+    }
 
     const existing = await User.findOne({ email });
     if (existing) {
@@ -12,7 +33,20 @@ const registerUser = async (req, res) => {
         .json({ success: false, message: "User already exists" });
     }
 
-    const newUser = await User.create({ name, email, password, role });
+    const userRole = ["student", "manager"].includes(role) ? role : "student";
+    const userData = {
+      name: name.trim(),
+      email: email.trim().toLowerCase(),
+      password,
+      role: userRole,
+      approvalStatus: userRole === "manager" ? "pending" : "approved",
+    };
+
+    if (userRole === "manager") {
+      userData.permissions = MANAGER_PERMISSIONS;
+    }
+
+    const newUser = await User.create(userData);
 
     res.status(201).json({
       success: true,
@@ -38,9 +72,17 @@ const registerUser = async (req, res) => {
 const loginUser = async (req, res) => {
   try {
     const { email, password } = req.body;
+    const normalizedEmail = email?.trim().toLowerCase();
 
-    const user = await User.findOne({ email });
-    if (!user || !(await user.matchPassword(password))) {
+    if (!normalizedEmail || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "Email and password are required",
+      });
+    }
+
+    const user = await User.findOne({ email: normalizedEmail });
+    if (!user || user.status === "inactive" || !(await user.matchPassword(password))) {
       return res
         .status(400)
         .json({ success: false, message: "Invalid email or password" });
@@ -66,18 +108,57 @@ const loginUser = async (req, res) => {
   }
 };
 
+const listUsers = async (req, res) => {
+  try {
+    const users = await User.find({ status: "active" })
+      .select("name email role bio createdAt")
+      .sort({ name: 1 });
+
+    const data = users.map((u) => {
+      const isSelf = u._id.toString() === req.user.id;
+      return isSelf
+        ? u
+        : { _id: u._id, name: u.name, role: u.role, bio: u.bio };
+    });
+
+    res.status(200).json({ success: true, data, count: data.length });
+  } catch (error) {
+    console.error("listUsers error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to list users",
+      error: error.message,
+    });
+  }
+};
+
 // Get user profile
 const getUserProfile = async (req, res) => {
   try {
-    const user = await User.findById(req.params.id || req.user._id)
+    const targetId = req.params.id || req.user._id;
+    const isSelf = targetId.toString() === req.user._id.toString();
+
+    const user = await User.findById(targetId)
       .select("-password")
       .populate("managedCourses")
       .populate("joinedGroups");
 
-    if (!user) {
+    if (!user || user.status === "inactive") {
       return res
         .status(404)
         .json({ success: false, message: "User not found" });
+    }
+
+    if (!isSelf && req.user.role !== "admin") {
+      return res.status(200).json({
+        success: true,
+        data: {
+          _id: user._id,
+          name: user.name,
+          bio: user.bio,
+          role: user.role,
+        },
+      });
     }
 
     res.status(200).json({ success: true, data: user });
@@ -181,6 +262,7 @@ const deleteUser = async (req, res) => {
 module.exports = {
   registerUser,
   loginUser,
+  listUsers,
   getUserProfile,
   updateUser,
   deleteUser,

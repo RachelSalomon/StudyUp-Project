@@ -13,7 +13,8 @@ const getCourses = async (req, res) => {
     })
       .populate("creator", "name email")
       .populate("manager", "name email")
-      .populate("members", "name email");
+      .populate("members", "name email")
+      .populate("pendingMembers.userId", "name email");
 
     res.status(200).json({ success: true, data: courses });
   } catch (error) {
@@ -52,9 +53,9 @@ const createCourse = async (req, res) => {
       members: [req.user.id],
     });
 
-    // Add course to user's managed courses list
+    // Add course to user's managed courses and joined groups
     await User.findByIdAndUpdate(req.user.id, {
-      $push: { managedCourses: newCourse._id },
+      $push: { managedCourses: newCourse._id, joinedGroups: newCourse._id },
     });
 
     // Corrected populate syntax for single mongoose documents to prevent runtime crashing
@@ -196,7 +197,8 @@ const addMember = async (req, res) => {
     const updated = await Course.findById(course._id)
       .populate("creator", "name email")
       .populate("manager", "name email")
-      .populate("members", "name email");
+      .populate("members", "name email")
+      .populate("pendingMembers.userId", "name email");
 
     res.status(200).json({
       success: true,
@@ -240,7 +242,8 @@ const removeMember = async (req, res) => {
     const updated = await Course.findById(course._id)
       .populate("creator", "name email")
       .populate("manager", "name email")
-      .populate("members", "name email");
+      .populate("members", "name email")
+      .populate("pendingMembers.userId", "name email");
 
     res.status(200).json({
       success: true,
@@ -257,11 +260,150 @@ const removeMember = async (req, res) => {
   }
 };
 
+// Browse public groups available to join
+const browseCourses = async (req, res) => {
+  try {
+    const courses = await Course.find({
+      isPrivate: false,
+      status: "active",
+      members: { $nin: [req.user.id] },
+    })
+      .populate("manager", "name email")
+      .select("name description professor category members pendingMembers isPrivate");
+
+    res.status(200).json({ success: true, data: courses });
+  } catch (error) {
+    console.error("browseCourses error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to browse groups",
+      error: error.message,
+    });
+  }
+};
+
+// Request to join a group
+const requestJoin = async (req, res) => {
+  try {
+    const course = await Course.findById(req.params.id);
+    if (!course) {
+      return res.status(404).json({ success: false, message: "Group not found" });
+    }
+
+    if (course.isMember(req.user.id)) {
+      return res.status(400).json({ success: false, message: "Already a member" });
+    }
+
+    const alreadyPending = course.pendingMembers.some(
+      (p) => p.userId.toString() === req.user.id,
+    );
+    if (alreadyPending) {
+      return res.status(400).json({ success: false, message: "Join request already pending" });
+    }
+
+    course.pendingMembers.push({ userId: req.user.id });
+    await course.save();
+
+    res.status(200).json({ success: true, message: "Join request sent" });
+  } catch (error) {
+    console.error("requestJoin error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to request join",
+      error: error.message,
+    });
+  }
+};
+
+// Manager approves a pending member
+const approveMember = async (req, res) => {
+  try {
+    const { userId } = req.body;
+    const course = await Course.findById(req.params.id);
+
+    if (!course) {
+      return res.status(404).json({ success: false, message: "Group not found" });
+    }
+
+    if (!course.isManager(req.user.id) && req.user.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Only group managers can approve members",
+      });
+    }
+
+    const pending = course.pendingMembers.find(
+      (p) => p.userId.toString() === userId,
+    );
+    if (!pending) {
+      return res.status(404).json({ success: false, message: "No pending request for this user" });
+    }
+
+    await course.addMember(userId);
+
+    await User.findByIdAndUpdate(userId, {
+      $addToSet: { joinedGroups: course._id },
+    });
+
+    const updated = await Course.findById(course._id)
+      .populate("creator", "name email")
+      .populate("manager", "name email")
+      .populate("members", "name email")
+      .populate("pendingMembers.userId", "name email");
+
+    res.status(200).json({ success: true, data: updated, message: "Member approved" });
+  } catch (error) {
+    console.error("approveMember error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to approve member",
+      error: error.message,
+    });
+  }
+};
+
+// Manager rejects a pending member
+const rejectMember = async (req, res) => {
+  try {
+    const { userId } = req.body;
+    const course = await Course.findById(req.params.id);
+
+    if (!course) {
+      return res.status(404).json({ success: false, message: "Group not found" });
+    }
+
+    if (!course.isManager(req.user.id) && req.user.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Only group managers can reject members",
+      });
+    }
+
+    course.pendingMembers = course.pendingMembers.filter(
+      (p) => p.userId.toString() !== userId,
+    );
+    await course.save();
+
+    res.status(200).json({ success: true, message: "Request rejected" });
+  } catch (error) {
+    console.error("rejectMember error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to reject member",
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   getCourses,
+  browseCourses,
   createCourse,
   updateCourse,
   deleteCourse,
   addMember,
   removeMember,
+  requestJoin,
+  approveMember,
+  rejectMember,
 };

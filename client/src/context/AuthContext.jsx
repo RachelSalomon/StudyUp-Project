@@ -39,11 +39,12 @@ const AuthProvider = ({ children }) => {
     return res;
   };
 
-  const register = async (name, email, password) => {
+  const register = async (name, email, password, role = "student") => {
     const res = await axios.post("/api/auth/register", {
       name,
       email,
       password,
+      role,
     });
     setUser(res.data.data);
     setToken(res.data.data.token);

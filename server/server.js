@@ -9,6 +9,7 @@ const socketIO = require("socket.io");
 const authRoutes = require("./routes/authRoutes");
 const searchRoutes = require("./routes/searchRoutes");
 const analyticsRoutes = require("./routes/analyticsRoutes");
+const { notFound, errorHandler } = require("./middleware/errorMiddleware");
 
 dotenv.config();
 
@@ -27,6 +28,8 @@ app.use(express.json());
 app.use("/api/auth", authRoutes);
 app.use("/api/tasks", require("./routes/taskRoutes"));
 app.use("/api/courses", require("./routes/courseRoutes"));
+app.use("/api/posts", require("./routes/postRoutes"));
+app.use("/api/friends", require("./routes/friendRoutes"));
 app.use("/api/search", searchRoutes);
 app.use("/api/analytics", analyticsRoutes);
 
@@ -51,9 +54,12 @@ io.on("connection", (socket) => {
 
     if (!rooms[data.room]) rooms[data.room] = [];
 
-    // Prevent duplicate entries of the same user inside the server memory array
     rooms[data.room] = rooms[data.room].filter((u) => u.userId !== data.userId);
-    rooms[data.room].push({ userId: data.userId, username: data.username });
+    rooms[data.room].push({
+      userId: data.userId,
+      username: data.username,
+      socketId: socket.id,
+    });
 
     io.to(data.room).emit("room_users", rooms[data.room]);
   });
@@ -80,9 +86,17 @@ io.on("connection", (socket) => {
   });
 
   socket.on("disconnect", () => {
+    Object.keys(rooms).forEach((room) => {
+      rooms[room] = rooms[room].filter((u) => u.socketId !== socket.id);
+      if (rooms[room].length === 0) delete rooms[room];
+      else io.to(room).emit("room_users", rooms[room]);
+    });
     console.log(`User disconnected: ${socket.id}`);
   });
 });
+
+app.use(notFound);
+app.use(errorHandler);
 
 // Database connection and server startup
 async function startServer() {

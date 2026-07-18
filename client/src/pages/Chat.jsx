@@ -2,6 +2,24 @@ import React, { useState, useEffect, useContext, useRef } from "react";
 import { AuthContext } from "../context/AuthContext";
 import io from "socket.io-client";
 
+const ROOMS = [
+  {
+    id: "general",
+    label: "General",
+    description: "Open chat for all students — general questions and study talk",
+  },
+  {
+    id: "announcements",
+    label: "Announcements",
+    description: "Share important updates, deadlines, and exam reminders",
+  },
+  {
+    id: "study-group",
+    label: "Study Group",
+    description: "Focused discussion for group projects and homework help",
+  },
+];
+
 const Chat = () => {
   const { user } = useContext(AuthContext);
   const [socket, setSocket] = useState(null);
@@ -9,23 +27,22 @@ const Chat = () => {
   const [inputValue, setInputValue] = useState("");
   const [selectedRoom, setSelectedRoom] = useState("general");
   const [roomUsers, setRoomUsers] = useState([]);
-  const [rooms] = useState(["general", "announcements", "study-group"]);
 
-  // Use a ref to always store the absolute latest selectedRoom value without triggering re-subscriptions
   const selectedRoomRef = useRef(selectedRoom);
+  const messagesByRoom = useRef({});
+
   useEffect(() => {
     selectedRoomRef.current = selectedRoom;
   }, [selectedRoom]);
 
-  // Handle single stable socket connection lifecycle
   useEffect(() => {
     if (!user) return;
 
-    const newSocket = io("http://localhost:5000");
+    const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:5000";
+    const newSocket = io(apiUrl);
     setSocket(newSocket);
 
     newSocket.on("connect", () => {
-      console.log("Connected to chat server");
       newSocket.emit("join_room", {
         room: selectedRoomRef.current,
         userId: user.id,
@@ -33,10 +50,12 @@ const Chat = () => {
       });
     });
 
-    // Listener attached exactly once. Uses ref to check current active room without closures duplication
     newSocket.on("receive_message", (data) => {
-      if (data.room === selectedRoomRef.current) {
-        setMessages((prev) => [...prev, data]);
+      const room = data.room;
+      if (!messagesByRoom.current[room]) messagesByRoom.current[room] = [];
+      messagesByRoom.current[room].push(data);
+      if (room === selectedRoomRef.current) {
+        setMessages([...messagesByRoom.current[room]]);
       }
     });
 
@@ -54,11 +73,9 @@ const Chat = () => {
 
     return () => {
       newSocket.disconnect();
-      console.log("Disconnected from chat server");
     };
   }, [user]);
 
-  // Handle clean room switching transitions without duplication
   useEffect(() => {
     if (socket && socket.connected && user) {
       socket.emit("join_room", {
@@ -66,6 +83,7 @@ const Chat = () => {
         userId: user.id,
         username: user.name,
       });
+      setMessages(messagesByRoom.current[selectedRoom] || []);
     }
   }, [selectedRoom, socket, user]);
 
@@ -76,11 +94,14 @@ const Chat = () => {
         room: selectedRoom,
         userId: user.id,
         username: user.name,
-        message: inputValue,
+        message: inputValue.trim(),
       });
       setInputValue("");
     }
   };
+
+  const activeRoom = ROOMS.find((r) => r.id === selectedRoom);
+  const isOwnMessage = (msg) => String(msg.userId) === String(user?.id);
 
   const styles = {
     container: {
@@ -89,14 +110,12 @@ const Chat = () => {
       backgroundColor: "#f5f7fa",
     },
     sidebar: {
-      width: "250px",
+      width: "260px",
       backgroundColor: "#2c3e50",
       color: "white",
       padding: "20px",
       overflowY: "auto",
-      boxShadow: "2px 0 10px rgba(0, 0, 0, 0.1)",
     },
-    roomsList: { listStyle: "none", padding: 0, marginBottom: "30px" },
     roomItem: {
       padding: "12px 16px",
       marginBottom: "8px",
@@ -107,26 +126,12 @@ const Chat = () => {
     },
     roomItemActive: {
       backgroundColor: "#3498db",
-      boxShadow: "0 2px 8px rgba(52, 152, 219, 0.3)",
     },
-    usersList: {
-      borderTop: "1px solid rgba(255, 255, 255, 0.2)",
-      paddingTop: "20px",
-    },
-    usersTitle: {
-      fontSize: "12px",
-      fontWeight: "bold",
-      textTransform: "uppercase",
-      marginBottom: "12px",
-      opacity: 0.8,
-    },
-    userItem: {
-      padding: "8px 12px",
-      fontSize: "14px",
-      borderRadius: "6px",
-      marginBottom: "6px",
-      backgroundColor: "rgba(46, 204, 113, 0.2)",
-      border: "1px solid rgba(46, 204, 113, 0.5)",
+    roomDesc: {
+      fontSize: "11px",
+      opacity: 0.75,
+      marginTop: "4px",
+      lineHeight: 1.4,
     },
     mainChat: {
       flex: 1,
@@ -148,11 +153,6 @@ const Chat = () => {
       flexDirection: "column",
       gap: "15px",
     },
-    message: {
-      display: "flex",
-      marginBottom: "10px",
-      animation: "slideIn 0.3s ease",
-    },
     messageContent: {
       maxWidth: "60%",
       backgroundColor: "#ecf0f1",
@@ -160,15 +160,7 @@ const Chat = () => {
       borderRadius: "12px",
       wordWrap: "break-word",
     },
-    messageOwn: { justifyContent: "flex-end" },
     messageOwnContent: { backgroundColor: "#3498db", color: "white" },
-    messageAuthor: {
-      fontSize: "12px",
-      fontWeight: "bold",
-      marginBottom: "6px",
-      color: "#34495e",
-    },
-    messageTime: { fontSize: "11px", marginTop: "6px", opacity: 0.7 },
     inputArea: {
       padding: "20px 30px",
       borderTop: "2px solid #ecf0f1",
@@ -191,39 +183,39 @@ const Chat = () => {
       cursor: "pointer",
       fontWeight: "bold",
     },
+    userItem: {
+      padding: "8px 12px",
+      fontSize: "14px",
+      borderRadius: "6px",
+      marginBottom: "6px",
+      backgroundColor: "rgba(46, 204, 113, 0.2)",
+    },
   };
 
   return (
     <div style={styles.container}>
-      <style>{`
-        @keyframes slideIn {
-          from { opacity: 0; transform: translateY(10px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-      `}</style>
-
       <div style={styles.sidebar}>
-        <h3 style={{ marginTop: 0 }}>Rooms</h3>
-        <ul style={styles.roomsList}>
-          {rooms.map((room) => (
+        <h3 style={{ marginTop: 0 }}>Chat Rooms</h3>
+        <ul style={{ listStyle: "none", padding: 0, marginBottom: "24px" }}>
+          {ROOMS.map((room) => (
             <li
-              key={room}
+              key={room.id}
               style={{
                 ...styles.roomItem,
-                ...(selectedRoom === room ? styles.roomItemActive : {}),
+                ...(selectedRoom === room.id ? styles.roomItemActive : {}),
               }}
-              onClick={() => {
-                setSelectedRoom(room);
-                setMessages([]); // Instantly flush view array on navigation click
-              }}
+              onClick={() => setSelectedRoom(room.id)}
             >
-              # {room}
+              <strong>{room.label}</strong>
+              <div style={styles.roomDesc}>{room.description}</div>
             </li>
           ))}
         </ul>
 
-        <div style={styles.usersList}>
-          <div style={styles.usersTitle}>Online Users ({roomUsers.length})</div>
+        <div style={{ borderTop: "1px solid rgba(255,255,255,0.2)", paddingTop: "16px" }}>
+          <div style={{ fontSize: "12px", fontWeight: "bold", marginBottom: "10px", opacity: 0.8 }}>
+            ONLINE IN THIS ROOM ({roomUsers.length})
+          </div>
           {roomUsers.map((u) => (
             <div key={u.userId} style={styles.userItem}>
               ● {u.username}
@@ -234,44 +226,42 @@ const Chat = () => {
 
       <div style={styles.mainChat}>
         <div style={styles.header}>
-          <h2 style={{ margin: 0 }}>#{selectedRoom}</h2>
-          <p style={{ margin: "8px 0 0 0", fontSize: "14px", opacity: 0.9 }}>
-            {roomUsers.length} user{roomUsers.length !== 1 ? "s" : ""} online
+          <h2 style={{ margin: 0 }}>{activeRoom?.label}</h2>
+          <p style={{ margin: "8px 0 0", fontSize: "14px", opacity: 0.9 }}>
+            {activeRoom?.description}
           </p>
         </div>
 
         <div style={styles.messagesContainer}>
           {messages.length === 0 ? (
-            <div
-              style={{ textAlign: "center", color: "#95a5a6", padding: "40px" }}
-            >
-              <p>No messages yet. Start the conversation!</p>
-            </div>
+            <p style={{ textAlign: "center", color: "#95a5a6", padding: "40px" }}>
+              No messages in this room yet. Start the conversation!
+            </p>
           ) : (
             messages.map((msg, index) => (
               <div
                 key={index}
                 style={{
-                  ...styles.message,
-                  ...(msg.userId === user?.id ? styles.messageOwn : {}),
+                  display: "flex",
+                  justifyContent: isOwnMessage(msg) ? "flex-end" : "flex-start",
                 }}
               >
                 <div
                   style={{
                     ...styles.messageContent,
-                    ...(msg.userId === user?.id
-                      ? styles.messageOwnContent
-                      : {}),
+                    ...(isOwnMessage(msg) ? styles.messageOwnContent : {}),
                   }}
                 >
-                  {msg.userId !== user?.id && (
-                    <div style={styles.messageAuthor}>{msg.username}</div>
+                  {!isOwnMessage(msg) && (
+                    <div style={{ fontSize: "12px", fontWeight: "bold", marginBottom: "6px" }}>
+                      {msg.username}
+                    </div>
                   )}
                   <div>{msg.message}</div>
-                  <div style={styles.messageTime}>
+                  <div style={{ fontSize: "11px", marginTop: "6px", opacity: 0.7 }}>
                     {msg.timestamp
                       ? new Date(msg.timestamp).toLocaleTimeString()
-                      : new Date().toLocaleTimeString()}
+                      : ""}
                   </div>
                 </div>
               </div>
@@ -284,7 +274,7 @@ const Chat = () => {
             type="text"
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
-            placeholder="Type a message..."
+            placeholder={`Message #${activeRoom?.label}...`}
             style={styles.input}
           />
           <button type="submit" style={styles.button}>

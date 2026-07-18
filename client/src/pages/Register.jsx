@@ -6,6 +6,7 @@ const Register = () => {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [role, setRole] = useState("student");
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const { register, token } = useContext(AuthContext);
@@ -21,8 +22,13 @@ const Register = () => {
     e.preventDefault();
     setError(null);
     setLoading(true);
+    if (password.length < 6) {
+      setError("Password must be at least 6 characters");
+      setLoading(false);
+      return;
+    }
     try {
-      await register(name, email, password);
+      await register(name, email, password, role);
       navigate("/");
     } catch (err) {
       setError(err.response?.data?.message || "Registration failed");
@@ -53,13 +59,21 @@ const Register = () => {
           />
         </div>
         <div>
-          <label>Password</label>
+          <label>Password (min 6 characters)</label>
           <input
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
+            minLength={6}
             required
           />
+        </div>
+        <div>
+          <label>Role</label>
+          <select value={role} onChange={(e) => setRole(e.target.value)}>
+            <option value="student">Student</option>
+            <option value="manager">Group Manager</option>
+          </select>
         </div>
         {error && <p style={{ color: "red" }}>{error}</p>}
         <button type="submit" disabled={loading}>

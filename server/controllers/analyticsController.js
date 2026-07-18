@@ -231,7 +231,8 @@ const getProgressTrends = async (req, res) => {
 
       const completedThatDay = await Task.countDocuments({
         user: userId,
-        completedAt: { $gte: date, $lt: nextDate },
+        status: "completed",
+        updatedAt: { $gte: date, $lt: nextDate },
         isDeleted: false,
       });
 

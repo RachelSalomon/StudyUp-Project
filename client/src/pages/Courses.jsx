@@ -1,156 +1,358 @@
-import React, { useState, useEffect } from "react";
-import axios from "axios";
+import React, { useContext, useEffect, useState } from "react";
+import { AuthContext } from "../context/AuthContext";
+import { useJQuery } from "../hooks/useJQuery";
+import { jqueryAjax } from "../utils/jqueryApi";
+
+const cardStyle = {
+  padding: 16,
+  borderRadius: 14,
+  background: "#f8fafc",
+  border: "1px solid #e2e8f0",
+  marginBottom: 12,
+};
+
+const sameId = (a, b) => {
+  if (!a || !b) return false;
+  return String(a) === String(b);
+};
 
 function Courses() {
+  const { user } = useContext(AuthContext);
+  const jqueryReady = useJQuery();
   const [courses, setCourses] = useState([]);
-  const [courseName, setCourseName] = useState("");
+  const [browse, setBrowse] = useState([]);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [editingId, setEditingId] = useState(null);
 
-  // Fetch all user courses on component mount
-  useEffect(() => {
-    fetchCourses();
-  }, []);
+  const [form, setForm] = useState({
+    name: "",
+    description: "",
+    professor: "",
+    category: "",
+    isPrivate: false,
+  });
+
+  const [editForm, setEditForm] = useState({
+    name: "",
+    description: "",
+    professor: "",
+    category: "",
+    isPrivate: false,
+  });
 
   const fetchCourses = async () => {
+    if (!jqueryReady) return;
     try {
-      const token = localStorage.getItem("token");
-      const res = await axios.get("http://localhost:5000/api/courses", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.data.success) {
-        setCourses(res.data.data);
-      }
+      const [mine, available] = await Promise.all([
+        jqueryAjax({ url: "/api/courses" }),
+        jqueryAjax({ url: "/api/courses/browse" }),
+      ]);
+      setCourses(mine.data || []);
+      setBrowse(available.data || []);
     } catch (err) {
-      console.error("Error fetching courses:", err);
+      setError(err.message);
     }
   };
 
-  const handleAddCourse = async (e) => {
+  useEffect(() => {
+    fetchCourses();
+  }, [jqueryReady]);
+
+  const canManage = (course) =>
+    user?.role === "admin" ||
+    sameId(course.manager?._id || course.manager, user?.id) ||
+    sameId(course.creator?._id || course.creator, user?.id);
+
+  const pendingRequests = courses.flatMap((course) => {
+    if (!canManage(course)) return [];
+    return (course.pendingMembers || []).map((p) => ({
+      courseId: course._id,
+      courseName: course.name,
+      userId: p.userId?._id || p.userId,
+      userName: p.userId?.name || p.userId?.email || "User",
+    }));
+  });
+
+  const handleAdd = async (e) => {
     e.preventDefault();
     setError("");
     setSuccess("");
-
-    if (!courseName.trim()) {
-      setError("Course name cannot be empty");
+    if (!form.name.trim()) {
+      setError("Group name is required");
       return;
     }
-
     try {
-      const token = localStorage.getItem("token");
-      const res = await axios.post(
-        "http://localhost:5000/api/courses",
-        { name: courseName },
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
-
-      if (res.data.success) {
-        setSuccess("Course added successfully!");
-        setCourseName("");
-        fetchCourses();
-      }
+      await jqueryAjax({ url: "/api/courses", method: "POST", data: form });
+      setForm({ name: "", description: "", professor: "", category: "", isPrivate: false });
+      setSuccess("Group created");
+      fetchCourses();
     } catch (err) {
-      setError("Unable to add course. Please try again.");
-      console.error(err);
+      setError(err.message);
     }
   };
 
-  const handleDeleteCourse = async (courseId) => {
-    if (!window.confirm("Are you sure you want to delete this course?")) return;
-
+  const handleUpdate = async (id) => {
+    if (!editForm.name.trim()) {
+      setError("Group name is required");
+      return;
+    }
     try {
-      const token = localStorage.getItem("token");
-      const res = await axios.delete(
-        `http://localhost:5000/api/courses/${courseId}`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        },
-      );
-
-      if (res.data.success) {
-        fetchCourses();
-      }
+      await jqueryAjax({ url: `/api/courses/${id}`, method: "PUT", data: editForm });
+      setEditingId(null);
+      setSuccess("Group updated");
+      fetchCourses();
     } catch (err) {
-      console.error("Error deleting course:", err);
-      alert("Failed to delete the course.");
+      setError(err.message);
+    }
+  };
+
+  const handleDelete = async (id) => {
+    if (!window.confirm("Delete this group?")) return;
+    try {
+      await jqueryAjax({ url: `/api/courses/${id}`, method: "DELETE" });
+      fetchCourses();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const handleJoin = async (id) => {
+    try {
+      await jqueryAjax({ url: `/api/courses/${id}/join`, method: "POST" });
+      setSuccess("Join request sent — waiting for group manager to approve");
+      fetchCourses();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const handleApprove = async (courseId, userId) => {
+    try {
+      await jqueryAjax({
+        url: `/api/courses/${courseId}/approve`,
+        method: "POST",
+        data: { userId: String(userId) },
+      });
+      setSuccess("Member approved");
+      fetchCourses();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const handleReject = async (courseId, userId) => {
+    try {
+      await jqueryAjax({
+        url: `/api/courses/${courseId}/reject`,
+        method: "POST",
+        data: { userId: String(userId) },
+      });
+      setSuccess("Request rejected");
+      fetchCourses();
+    } catch (err) {
+      setError(err.message);
     }
   };
 
   return (
-    <div style={{ maxWidth: "600px", margin: "40px auto", padding: "20px" }}>
-      <h2 style={{ textAlign: "center", marginBottom: "20px" }}>Courses</h2>
+    <div className="container">
+      <h2 className="page-title">Study Groups</h2>
+      {error && <p style={{ color: "#ef4444" }}>{error}</p>}
+      {success && <p style={{ color: "#16a34a" }}>{success}</p>}
 
-      <form onSubmit={handleAddCourse} style={{ marginBottom: "30px" }}>
-        <div style={{ display: "flex", gap: "10px" }}>
+      {pendingRequests.length > 0 && (
+        <section
+          style={{
+            marginBottom: 24,
+            padding: 18,
+            borderRadius: 14,
+            background: "#fffbeb",
+            border: "2px solid #fcd34d",
+          }}
+        >
+          <h3 style={{ marginTop: 0, color: "#92400e" }}>
+            Pending join requests ({pendingRequests.length})
+          </h3>
+          <p style={{ color: "#78350f", fontSize: 14, marginTop: -4 }}>
+            Students asked to join your groups — click Approve to accept them.
+          </p>
+          {pendingRequests.map((req) => (
+            <div
+              key={`${req.courseId}-${req.userId}`}
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: 12,
+                padding: "10px 0",
+                borderBottom: "1px solid #fde68a",
+              }}
+            >
+              <span>
+                <strong>{req.userName}</strong> → group <strong>{req.courseName}</strong>
+              </span>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  type="button"
+                  style={{ padding: "6px 14px", fontSize: 13 }}
+                  onClick={() => handleApprove(req.courseId, req.userId)}
+                >
+                  Approve
+                </button>
+                <button
+                  type="button"
+                  style={{ padding: "6px 14px", fontSize: 13, background: "#64748b" }}
+                  onClick={() => handleReject(req.courseId, req.userId)}
+                >
+                  Reject
+                </button>
+              </div>
+            </div>
+          ))}
+        </section>
+      )}
+
+      <form onSubmit={handleAdd} style={{ marginBottom: 28 }}>
+        <h3>Create Group</h3>
+        <input
+          placeholder="Group name"
+          value={form.name}
+          onChange={(e) => setForm({ ...form, name: e.target.value })}
+          required
+        />
+        <input
+          placeholder="Description"
+          value={form.description}
+          onChange={(e) => setForm({ ...form, description: e.target.value })}
+        />
+        <input
+          placeholder="Professor"
+          value={form.professor}
+          onChange={(e) => setForm({ ...form, professor: e.target.value })}
+        />
+        <input
+          placeholder="Category"
+          value={form.category}
+          onChange={(e) => setForm({ ...form, category: e.target.value })}
+        />
+        <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <input
-            type="text"
-            className="form-control"
-            placeholder="Course name"
-            value={courseName}
-            onChange={(e) => setCourseName(e.target.value)}
-            style={{ padding: "10px", fontSize: "16px" }}
+            type="checkbox"
+            checked={form.isPrivate}
+            onChange={(e) => setForm({ ...form, isPrivate: e.target.checked })}
           />
-          <button
-            type="submit"
-            className="btn btn-primary"
-            style={{ padding: "10px 24px" }}
-          >
-            Add
-          </button>
-        </div>
-        {error && (
-          <div style={{ color: "red", marginTop: "10px" }}>{error}</div>
-        )}
-        {success && (
-          <div style={{ color: "green", marginTop: "10px" }}>{success}</div>
-        )}
+          Private group
+        </label>
+        <button type="submit">Create Group</button>
       </form>
 
-      <div>
-        <h4>Your Enrolled Courses</h4>
-        {courses.length === 0 ? (
-          <p style={{ color: "#666", fontStyle: "italic" }}>
-            No courses yet. Add a course above to begin organizing your tasks.
-          </p>
-        ) : (
-          <ul style={{ listStyle: "none", padding: 0 }}>
-            {courses.map((course) => (
-              <li
-                key={course._id}
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between", //  Fixed to valid CSS value
-                  alignItems: "center",
-                  padding: "12px",
-                  borderBottom: "1px solid #eee",
-                  backgroundColor: "#fff",
-                  marginBottom: "8px",
-                  borderRadius: "4px",
-                  boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
-                }}
-              >
-                <span style={{ fontSize: "16px", fontWeight: "500" }}>
-                  {course.name}
-                </span>
-                <button
-                  onClick={() => handleDeleteCourse(course._id)}
-                  className="btn btn-danger btn-sm"
-                  style={{
-                    backgroundColor: "#dc3545",
-                    borderColor: "#dc3545",
-                    color: "white",
-                    padding: "4px 8px",
-                    borderRadius: "4px",
-                    cursor: "pointer",
-                  }}
-                >
-                  Delete
+      <h3>My Groups</h3>
+      {courses.length === 0 ? (
+        <p style={{ color: "#64748b" }}>No groups yet.</p>
+      ) : (
+        courses.map((course) => (
+          <div key={course._id} style={cardStyle}>
+            {editingId === course._id ? (
+              <div style={{ display: "grid", gap: 10 }}>
+                <input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
+                <input value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} />
+                <input value={editForm.professor} onChange={(e) => setEditForm({ ...editForm, professor: e.target.value })} />
+                <input value={editForm.category} onChange={(e) => setEditForm({ ...editForm, category: e.target.value })} />
+                <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <input type="checkbox" checked={editForm.isPrivate} onChange={(e) => setEditForm({ ...editForm, isPrivate: e.target.checked })} />
+                  Private
+                </label>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button type="button" onClick={() => handleUpdate(course._id)}>Save</button>
+                  <button type="button" style={{ background: "#64748b" }} onClick={() => setEditingId(null)}>Cancel</button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div>
+                    <strong>{course.name}</strong>
+                    {course.isPrivate && <span style={{ marginLeft: 8, fontSize: 12, color: "#64748b" }}>(Private)</span>}
+                    {canManage(course) && (course.pendingMembers?.length || 0) > 0 && (
+                      <span style={{ marginLeft: 8, fontSize: 12, color: "#b45309", fontWeight: 600 }}>
+                        ({course.pendingMembers.length} pending)
+                      </span>
+                    )}
+                    <p style={{ margin: "4px 0", color: "#64748b", fontSize: 14 }}>
+                      {course.professor && `${course.professor} · `}{course.members?.length || 0} members
+                      {canManage(course) && " · You manage this group"}
+                    </p>
+                  </div>
+                  {canManage(course) && (
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button
+                        type="button"
+                        style={{ padding: "6px 12px", fontSize: 13 }}
+                        onClick={() => {
+                          setEditingId(course._id);
+                          setEditForm({
+                            name: course.name,
+                            description: course.description || "",
+                            professor: course.professor || "",
+                            category: course.category || "",
+                            isPrivate: course.isPrivate,
+                          });
+                        }}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        style={{ padding: "6px 12px", fontSize: 13, background: "#fee2e2", color: "#b91c1c" }}
+                        onClick={() => handleDelete(course._id)}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {canManage(course) && course.pendingMembers?.length > 0 && (
+                  <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #e2e8f0" }}>
+                    <strong style={{ fontSize: 14 }}>Pending requests:</strong>
+                    {course.pendingMembers.map((p) => (
+                      <div key={p.userId?._id || p.userId} style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
+                        <span>{p.userId?.name || "User"}</span>
+                        <button type="button" style={{ padding: "4px 10px", fontSize: 12 }} onClick={() => handleApprove(course._id, p.userId?._id || p.userId)}>
+                          Approve
+                        </button>
+                        <button type="button" style={{ padding: "4px 10px", fontSize: 12, background: "#64748b" }} onClick={() => handleReject(course._id, p.userId?._id || p.userId)}>
+                          Reject
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        ))
+      )}
+
+      {browse.length > 0 && (
+        <>
+          <h3 style={{ marginTop: 28 }}>Join a Group</h3>
+          {browse.map((course) => (
+            <div key={course._id} style={cardStyle}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div>
+                  <strong>{course.name}</strong>
+                  <p style={{ margin: "4px 0", color: "#64748b", fontSize: 14 }}>{course.description}</p>
+                </div>
+                <button type="button" style={{ padding: "6px 14px", fontSize: 13 }} onClick={() => handleJoin(course._id)}>
+                  Request Join
                 </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+              </div>
+            </div>
+          ))}
+        </>
+      )}
     </div>
   );
 }

@@ -20,6 +20,9 @@ client/dist-ssr/
 # CRITICAL: Security & Environment Variables
 server/.env
 
+# Demo video (>100MB) — partners: run copy-video.bat after clone
+client/public/studyup-demo.mp4
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

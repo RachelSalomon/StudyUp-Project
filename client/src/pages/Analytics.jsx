@@ -13,12 +13,9 @@ const Analytics = () => {
   useEffect(() => {
     const fetchAnalytics = async () => {
       try {
-        const response = await axios.get(
-          "http://localhost:5000/api/analytics/tasks",
-          {
+        const response = await axios.get("/api/analytics/tasks", {
             headers: { Authorization: `Bearer ${token}` },
-          },
-        );
+        });
         setData(response.data.data);
       } catch (error) {
         console.error("Failed to fetch analytics:", error);

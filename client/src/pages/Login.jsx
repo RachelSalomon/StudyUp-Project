@@ -24,7 +24,12 @@ const Login = () => {
       await login(email, password);
       navigate("/");
     } catch (err) {
-      setError(err.response?.data?.message || "Login failed");
+      setError(
+        err.response?.data?.message ||
+          (err.message === "Network Error"
+            ? "Cannot reach server — make sure it is running on port 5000"
+            : err.message || "Login failed"),
+      );
     } finally {
       setLoading(false);
     }
